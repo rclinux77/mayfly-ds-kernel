@@ -635,6 +635,10 @@ jobs:
         working-directory: ${{ env.KERNEL_ROOT }}/KernelSU
         run: |
           KBUILD_FILE="./kernel/Kbuild"
+          # 与设备现有 SukiSU 管理器 v4.2.0 严格对齐：Kbuild 默认按 main 分支
+          # 当前提交数推算 KSU_VERSION（会得到 41xxx），这里硬锁成管理器期望的 40900
+          sed -i -E 's|^KSU_VERSION[[:space:]]*:=.*|KSU_VERSION     := 40900|' "$KBUILD_FILE"
+          grep -n '^KSU_VERSION' "$KBUILD_FILE"
           CUSTOM_TAG="${{ vars.MANAGER_STR }}"
 
           if [ ! -f "$KBUILD_FILE" ]; then
