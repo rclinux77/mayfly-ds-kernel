@@ -651,53 +651,30 @@ jobs:
           # 当前提交数推算 KSU_VERSION（会得到 41xxx），这里硬锁成管理器期望的 40900
           sed -i -E 's|^KSU_VERSION[[:space:]]*:=.*|KSU_VERSION     := 40900|' "$KBUILD_FILE"
           grep -n '^KSU_VERSION' "$KBUILD_FILE"
-          CUSTOM_TAG="${{ vars.MANAGER_STR }}"
-
           if [ ! -f "$KBUILD_FILE" ]; then
             echo "未找到 $KBUILD_FILE，跳过 SukiSU 版本标识定制"
             exit 0
           fi
 
-          GIT_HASH=$(git rev-parse --short=8 HEAD)
-          BRANCH_NAME="${BRANCH#-s }"
-          if [ -z "$BRANCH_NAME" ] || [ "$BRANCH_NAME" = "$BRANCH" ]; then
-            BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-          fi
+          # 管理器首页「内核完整版本」来自内核里的 KSU_VERSION_FULL，生成式为：
+          #   v<VERSION_TAG>-<短 SHA>@<git_branch>
+          # 其中 VERSION_TAG 默认取 GitHub「最新 release」的 tag（现在已是 v4.3.0-r2），
+          # 与我们检出的源码线无关；git_branch 在 detached HEAD 下返回 "HEAD"。
+          # 两者叠加就显示成 "v4.3.0-r2-904c60d1@HEAD"，与 KSU_VERSION=40900 自相矛盾。
+          # 这里把 tag 钉成 4.2.0、分支段换成 KMI 标识，显示为：
+          #   v4.2.0-904c60d1@android12-9
+          KSU_TAG="4.2.0"
+          KSU_BRANCH_LABEL="android12-9"
+          sed -i -E "s|^VERSION_TAG[[:space:]]*:=.*|VERSION_TAG     := ${KSU_TAG}|" "$KBUILD_FILE"
+          sed -i -E "s|^git_branch[[:space:]]*=[[:space:]]*.*|git_branch       = ${KSU_BRANCH_LABEL}|" "$KBUILD_FILE"
 
-          if [ -n "$CUSTOM_TAG" ]; then
-            VERSION_TEMPLATE="v\$1-$CUSTOM_TAG@$BRANCH_NAME[$GIT_HASH]"
-          else
-            VERSION_TEMPLATE="v\$1-$GIT_HASH@$BRANCH_NAME"
-          fi
+          # 必须校验改写结果：Kbuild 的取值会随上游改动，改不动时构建仍然全绿，
+          # 只有刷进手机后才发现版本串还是旧的，所以这里直接失败。
+          grep -qx "VERSION_TAG     := ${KSU_TAG}" "$KBUILD_FILE" || { echo "::error::VERSION_TAG 改写失败"; exit 1; }
+          grep -qx "git_branch       = ${KSU_BRANCH_LABEL}" "$KBUILD_FILE" || { echo "::error::git_branch 改写失败"; exit 1; }
 
-          awk -v body="$VERSION_TEMPLATE" '
-            BEGIN {
-              in_block = 0
-              replaced = 0
-            }
-            /^[[:space:]]*define get_ksu_version_full$/ {
-              print
-              print body
-              in_block = 1
-              replaced = 1
-              next
-            }
-            in_block && /^[[:space:]]*endef$/ {
-              print
-              in_block = 0
-              next
-            }
-            !in_block {
-              print
-            }
-            END {
-              if (!replaced) {
-                exit 1
-              }
-            }
-          ' "$KBUILD_FILE" > "${KBUILD_FILE}.tmp" && mv "${KBUILD_FILE}.tmp" "$KBUILD_FILE"
-
-          echo "已更新 get_ksu_version_full 模板: $VERSION_TEMPLATE"
+          grep -n -E '^(KSU_VERSION|VERSION_TAG|git_branch)[[:space:]]' "$KBUILD_FILE"
+          echo "内核将报告的完整版本串: v${KSU_TAG}-$(git rev-parse --short=8 HEAD)@${KSU_BRANCH_LABEL}"
 
       # 在内核源码和 KSU 准备完成后再获取 SUSFS，避免在前期集中拉取。
       - name: 克隆 SUSFS 源码
