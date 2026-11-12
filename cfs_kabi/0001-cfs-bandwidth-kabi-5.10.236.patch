@@ -670,7 +670,7 @@ index 0245e3e..469688d 100644
  
 -
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
-index 88bde2c..bb9122a 100644
+index 88bde2c..c20a3c3 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
 @@ -3,6 +3,8 @@
@@ -760,7 +760,7 @@ index 88bde2c..bb9122a 100644
  extern void unthrottle_cfs_rq(struct cfs_rq *cfs_rq);
  
  extern void free_rt_sched_group(struct task_group *tg);
-@@ -603,22 +638,37 @@ struct cfs_rq {
+@@ -603,22 +638,56 @@ struct cfs_rq {
  	struct list_head	leaf_cfs_rq_list;
  	struct task_group	*tg;	/* group that "owns" this runqueue */
  
@@ -791,18 +791,37 @@ index 88bde2c..bb9122a 100644
  
 +#if defined(CONFIG_FAIR_GROUP_SCHED) && !defined(__GENKSYMS__)
 +/*
-+ * KMI: the stock cfs_rq layout seen by vendor modules must not move.
++ * KMI: the layout that vendor modules were compiled against must not move.
 + *
-+ * Values below are the stock AOSP android12-5.10 (KMI android12-9) layout
-+ * for a build without vendor WALT patches: the vendor array sits at 344,
-+ * the structure rounds up to 384, and the bandwidth pointer lives at 360
-+ * -- inside the 24 bytes of tail padding, so enabling CONFIG_CFS_BANDWIDTH
-+ * leaves both the offset and sizeof(struct cfs_rq) untouched.
++ * Absolute offsets are not stable here -- they shift with SCHEDSTATS,
++ * SCHED_DEBUG, SCHED_INFO and any vendor additions -- so assert the two
++ * properties we actually need instead of hard-coded numbers:
++ *
++ *   1. the bandwidth pointer sits at or after the end of the Android
++ *      vendor array, so android_vendor_data1 keeps its stock offset;
++ *   2. it still fits inside the tail padding, i.e. the struct rounded up
++ *      to its own alignment is the same size as it would be without the
++ *      pointer.
++ *
++ * The vendor array is the last real member of the struct, so rounding its
++ * end offset up to __alignof__(struct cfs_rq) yields exactly the size the
++ * struct has when CONFIG_CFS_BANDWIDTH adds no member at all. Both checks
++ * passing therefore means the CONFIG_CFS_BANDWIDTH=y layout is
++ * byte-identical to the CONFIG_CFS_BANDWIDTH=n one.
 + */
-+static_assert(offsetof(struct cfs_rq, android_vendor_data1) == 344);
-+static_assert(sizeof(struct cfs_rq) == 384);
++#define DS_CFS_RQ_VENDOR_END						\
++	(offsetof(struct cfs_rq, android_vendor_data1) +		\
++	 sizeof(((struct cfs_rq *)0)->android_vendor_data1))
++#define DS_CFS_RQ_ALIGN		__alignof__(struct cfs_rq)
++#define DS_CFS_RQ_BASE_SIZE						\
++	((DS_CFS_RQ_VENDOR_END + DS_CFS_RQ_ALIGN - 1) / DS_CFS_RQ_ALIGN *	\
++	 DS_CFS_RQ_ALIGN)
++
 +#ifdef CONFIG_CFS_BANDWIDTH
-+static_assert(offsetof(struct cfs_rq, cfs_bandwidth) == 360);
++static_assert(offsetof(struct cfs_rq, cfs_bandwidth) >= DS_CFS_RQ_VENDOR_END);
++static_assert(offsetof(struct cfs_rq, cfs_bandwidth) + sizeof(void *) <=
++	      DS_CFS_RQ_BASE_SIZE);
++static_assert(sizeof(struct cfs_rq) == DS_CFS_RQ_BASE_SIZE);
 +#endif
 +#endif
 +
