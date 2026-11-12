@@ -96,6 +96,10 @@ on:
         required: false
         type: boolean
         default: false
+      cgroup_limits:
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build-kernel:
@@ -1011,11 +1015,15 @@ jobs:
           enable_config_if_defined CONFIG_IP6_NF_TARGET_MASQUERADE
 
           # CPU / 进程限制（--cpus / --pids-limit）
-          # 注意：CFS_BANDWIDTH 会给 struct cfs_rq 增加字段，可能改变导出符号 CRC，
-          # 构建后由 tools/abi_guard.py 与设备 310 个厂商模块的 __versions 逐一比对。
-          enable_config CONFIG_FAIR_GROUP_SCHED
-          enable_config CONFIG_CFS_BANDWIDTH
-          enable_config CONFIG_CGROUP_PIDS
+          # 由输入 cgroup_limits 控制，便于二分定位「不开机」是否为该组配置引起
+          if [ "${{ inputs.cgroup_limits }}" = "true" ]; then
+            echo "cgroup_limits=true：启用 CFS_BANDWIDTH / CGROUP_PIDS"
+            enable_config CONFIG_FAIR_GROUP_SCHED
+            enable_config CONFIG_CFS_BANDWIDTH
+            enable_config CONFIG_CGROUP_PIDS
+          else
+            echo "cgroup_limits=false：跳过 CPU/进程限制配置"
+          fi
 
           # 可选: 网络相关配置 (Docker/NAT 模式)
           enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_ADDRTYPE

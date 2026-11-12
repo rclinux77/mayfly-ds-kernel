@@ -104,6 +104,11 @@ on:
         required: false
         type: boolean
         default: false
+      cgroup_limits:
+        description: "启用 CPU/进程限制（CFS_BANDWIDTH/CGROUP_PIDS）"
+        required: false
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       kernelsu_variant:
@@ -157,6 +162,10 @@ on:
         required: false
         type: boolean
         default: false
+      cgroup_limits:
+        required: false
+        type: boolean
+        default: true
       called_from_main:
         description: "是否从 main.yml 调用（内部使用）"
         required: false
@@ -202,6 +211,7 @@ jobs:
       ksu_mode: ${{ inputs.ksu_mode || '关闭' }}
       droidspaces: ${{ inputs.droidspaces || 'off' }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
+      cgroup_limits: ${{ inputs.cgroup_limits }}
       artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
 
   # 仅在直接触发时运行，从 main.yml 调用时跳过
