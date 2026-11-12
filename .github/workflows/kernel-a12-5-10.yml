@@ -109,6 +109,16 @@ on:
         required: false
         type: boolean
         default: true
+      cfs_bandwidth:
+        description: "启用 CFS_BANDWIDTH（--cpus）"
+        required: false
+        type: boolean
+        default: true
+      cgroup_pids:
+        description: "启用 CGROUP_PIDS（--pids-limit）"
+        required: false
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       kernelsu_variant:
@@ -166,6 +176,14 @@ on:
         required: false
         type: boolean
         default: true
+      cfs_bandwidth:
+        required: false
+        type: boolean
+        default: true
+      cgroup_pids:
+        required: false
+        type: boolean
+        default: true
       called_from_main:
         description: "是否从 main.yml 调用（内部使用）"
         required: false
@@ -212,6 +230,8 @@ jobs:
       droidspaces: ${{ inputs.droidspaces || 'off' }}
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync || false }}
       cgroup_limits: ${{ inputs.cgroup_limits }}
+      cfs_bandwidth: ${{ inputs.cfs_bandwidth }}
+      cgroup_pids: ${{ inputs.cgroup_pids }}
       artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
 
   # 仅在直接触发时运行，从 main.yml 调用时跳过

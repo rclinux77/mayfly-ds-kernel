@@ -100,6 +100,14 @@ on:
         required: false
         type: boolean
         default: true
+      cfs_bandwidth:
+        required: false
+        type: boolean
+        default: true
+      cgroup_pids:
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build-kernel:
@@ -1015,12 +1023,21 @@ jobs:
           enable_config_if_defined CONFIG_IP6_NF_TARGET_MASQUERADE
 
           # CPU / 进程限制（--cpus / --pids-limit）
-          # 由输入 cgroup_limits 控制，便于二分定位「不开机」是否为该组配置引起
+          # 两项可独立开关，便于二分定位「不开机」由哪一项引起
           if [ "${{ inputs.cgroup_limits }}" = "true" ]; then
-            echo "cgroup_limits=true：启用 CFS_BANDWIDTH / CGROUP_PIDS"
-            enable_config CONFIG_FAIR_GROUP_SCHED
-            enable_config CONFIG_CFS_BANDWIDTH
-            enable_config CONFIG_CGROUP_PIDS
+            if [ "${{ inputs.cfs_bandwidth }}" = "true" ]; then
+              echo "启用 CFS_BANDWIDTH（--cpus）"
+              enable_config CONFIG_FAIR_GROUP_SCHED
+              enable_config CONFIG_CFS_BANDWIDTH
+            else
+              echo "跳过 CFS_BANDWIDTH"
+            fi
+            if [ "${{ inputs.cgroup_pids }}" = "true" ]; then
+              echo "启用 CGROUP_PIDS（--pids-limit）"
+              enable_config CONFIG_CGROUP_PIDS
+            else
+              echo "跳过 CGROUP_PIDS"
+            fi
           else
             echo "cgroup_limits=false：跳过 CPU/进程限制配置"
           fi
