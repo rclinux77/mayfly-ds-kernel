@@ -1578,21 +1578,27 @@ jobs:
             fi
           fi
 
-      - name: kABI 对齐（genksyms 屏蔽 CFS 内部结构）
-        if: ${{ inputs.cgroup_limits && inputs.cfs_bandwidth }}
+      - name: kABI 对齐（genksyms 屏蔽内部结构变化）
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           set -e
-          F=kernel/sched/sched.h
-          BEFORE=$(grep -c '^#ifdef CONFIG_CFS_BANDWIDTH$' "$F" || true)
-          echo "补丁前 #ifdef CONFIG_CFS_BANDWIDTH: $BEFORE 处"
-          # struct cfs_bandwidth / struct cfs_rq 是内核内部结构，厂商模块既看不到也无法引用；
-          # 但 genksyms 会递归把它们的成员算进 task_struct 等类型的哈希，导致
-          # wake_up_process / sched_setscheduler 等导出符号 CRC 变化、模块被拒。
-          # 仅对 genksyms 屏蔽（__GENKSYMS__ 只在计算 CRC 时定义），真实布局不变。
-          sed -i 's/^#ifdef CONFIG_CFS_BANDWIDTH$/#if defined(CONFIG_CFS_BANDWIDTH) \&\& !defined(__GENKSYMS__)/' "$F"
-          echo "补丁后:"; grep -n 'CONFIG_CFS_BANDWIDTH' "$F" | head -6
-          test "$(grep -c '!defined(__GENKSYMS__)' "$F")" -ge 1
+          # 原理：genksyms 会把被引用类型的成员递归算进导出符号的 CRC。
+          # struct cfs_rq / struct cfs_bandwidth 是内核内部结构，厂商模块看不到；
+          # CGROUP_SUBSYS_COUNT 增长只影响数组维度，且 pids 排在末尾不改变已有子系统 ID。
+          # 这些变化对模块的真实 ABI 没有影响，但会让 CRC 全变、模块被拒。
+          # __GENKSYMS__ 只在计算 CRC 时定义，因此这里仅影响哈希，真实布局与功能不变。
+          if [ "${{ inputs.cfs_bandwidth }}" = "true" ]; then
+            F=kernel/sched/sched.h
+            echo "sched.h 补丁前: $(grep -c '^#ifdef CONFIG_CFS_BANDWIDTH$' "$F" || true) 处"
+            sed -i 's/^#ifdef CONFIG_CFS_BANDWIDTH$/#if defined(CONFIG_CFS_BANDWIDTH) \&\& !defined(__GENKSYMS__)/' "$F"
+            grep -n 'CONFIG_CFS_BANDWIDTH' "$F" | head -4
+          fi
+          if [ "${{ inputs.cgroup_pids }}" = "true" ]; then
+            F=include/linux/cgroup_subsys.h
+            sed -i 's/^#if IS_ENABLED(CONFIG_CGROUP_PIDS)$/#if IS_ENABLED(CONFIG_CGROUP_PIDS) \&\& !defined(__GENKSYMS__)/' "$F"
+            grep -n -A1 'CGROUP_PIDS' "$F" | head -4
+          fi
+          echo "genksyms 屏蔽点数量: $(grep -rl '__GENKSYMS__' kernel/sched/sched.h include/linux/cgroup_subsys.h | wc -l)"
 
       - name: 编译内核
         id: compile_kernel
