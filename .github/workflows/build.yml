@@ -1578,21 +1578,27 @@ jobs:
             fi
           fi
 
-      - name: kABI 对齐（genksyms 屏蔽内部结构变化）
+      - name: kABI 对齐（CFS bandwidth 结构体重排 / CGROUP_PIDS genksyms 屏蔽）
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           set -e
-          # 原理：genksyms 会把被引用类型的成员递归算进导出符号的 CRC。
-          # struct cfs_rq / struct cfs_bandwidth 是内核内部结构，厂商模块看不到；
-          # CGROUP_SUBSYS_COUNT 增长只影响数组维度，且 pids 排在末尾不改变已有子系统 ID。
-          # 这些变化对模块的真实 ABI 没有影响，但会让 CRC 全变、模块被拒。
-          # __GENKSYMS__ 只在计算 CRC 时定义，因此这里仅影响哈希，真实布局与功能不变。
+          # CFS_BANDWIDTH：不再用「屏蔽 genksyms」这种只改哈希、不改真实布局的手段
+          # （那样 CRC 全绿但 sched_walt.ko 按基线偏移写 cfs_rq 会写错位，导致看门狗复位）。
+          # 这里应用真正的 kABI 安全重排：cfs_bandwidth 状态移出 task_group（只占 KABI
+          # reserve 2 的一个指针），cfs_rq 里只增加一个落在尾部 padding 的指针，因此
+          # android_vendor_data1 偏移与 sizeof(struct cfs_rq) 都与基线完全一致。
+          # 补丁自带 static_assert，布局不符会直接编译失败，不会产出能刷但会崩的镜像。
           if [ "${{ inputs.cfs_bandwidth }}" = "true" ]; then
-            F=kernel/sched/sched.h
-            echo "sched.h 补丁前: $(grep -c '^#ifdef CONFIG_CFS_BANDWIDTH$' "$F" || true) 处"
-            sed -i 's/^#ifdef CONFIG_CFS_BANDWIDTH$/#if defined(CONFIG_CFS_BANDWIDTH) \&\& !defined(__GENKSYMS__)/' "$F"
-            grep -n 'CONFIG_CFS_BANDWIDTH' "$F" | head -4
+            P="$GITHUB_WORKSPACE/cfs_kabi/0001-cfs-bandwidth-kabi-5.10.236.patch"
+            echo "应用 CFS bandwidth kABI 补丁: $P"
+            git apply --check "$P"
+            git apply "$P"
+            echo "--- sched.h 布局断言 ---"
+            grep -n "static_assert" kernel/sched/sched.h
           fi
+          # CGROUP_PIDS：CGROUP_SUBSYS_COUNT 增长只影响数组维度，且 pids 排在末尾不改变
+          # 已有子系统 ID；这些变化对模块的真实 ABI 没有影响，但会让 CRC 全变、模块被拒。
+          # __GENKSYMS__ 只在计算 CRC 时定义，因此这里仅影响哈希，真实布局与功能不变。
           if [ "${{ inputs.cgroup_pids }}" = "true" ]; then
             F=include/linux/cgroup_subsys.h
             sed -i 's/^#if IS_ENABLED(CONFIG_CGROUP_PIDS)$/#if IS_ENABLED(CONFIG_CGROUP_PIDS) \&\& !defined(__GENKSYMS__)/' "$F"
@@ -1801,17 +1807,21 @@ jobs:
 
           gzip -n -k -f -9 ./Image > ./Image.gz
 
+          # 通用 GKI 镜像命名：boot-<内核版本>-<KMI>[-gz|-lz4].img
+          # 不带设备代号，mayfly / marble 等同一 KMI（android12-9）设备共用
+          BOOT_NAME="boot-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-android12-9"
+
           $MKBOOTIMG --header_version 4 --kernel Image --output boot.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
+          cp ./boot.img "../${BOOT_NAME}.img"
 
           $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-gz.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
+          cp ./boot-gz.img "../${BOOT_NAME}-gz.img"
 
           $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ inputs.os_patch_level }}"
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
+          cp ./boot-lz4.img "../${BOOT_NAME}-lz4.img"
 
       - name: 构建 Boot 镜像 (Android 13+)
         if: inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' || inputs.android_version == 'android16'
