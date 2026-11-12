@@ -1000,6 +1000,12 @@ jobs:
           # 不需要像 SYSVIPC/IPC_NS 那样额外打 padding 补丁。与 wild_kernel 保持一致，全版本启用。
           enable_config CONFIG_USER_NS
 
+          # kABI 安全补充：macvlan 驱动自包含；IP6_NF_NAT 仅新增 netfilter 模块，
+          # 均不改动已导出符号 CRC（见 Droidspaces Kernel-Configuration.md GKI 章节）
+          enable_config_if_defined CONFIG_MACVLAN
+          enable_config_if_defined CONFIG_IP6_NF_NAT
+          enable_config_if_defined CONFIG_IP6_NF_TARGET_MASQUERADE
+
           # 可选: 网络相关配置 (Docker/NAT 模式)
           enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
           enable_config_if_defined CONFIG_NETFILTER_XT_TARGET_LOG
