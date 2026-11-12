@@ -1578,6 +1578,22 @@ jobs:
             fi
           fi
 
+      - name: kABI 对齐（genksyms 屏蔽 CFS 内部结构）
+        if: ${{ inputs.cgroup_limits && inputs.cfs_bandwidth }}
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          set -e
+          F=kernel/sched/sched.h
+          BEFORE=$(grep -c '^#ifdef CONFIG_CFS_BANDWIDTH$' "$F" || true)
+          echo "补丁前 #ifdef CONFIG_CFS_BANDWIDTH: $BEFORE 处"
+          # struct cfs_bandwidth / struct cfs_rq 是内核内部结构，厂商模块既看不到也无法引用；
+          # 但 genksyms 会递归把它们的成员算进 task_struct 等类型的哈希，导致
+          # wake_up_process / sched_setscheduler 等导出符号 CRC 变化、模块被拒。
+          # 仅对 genksyms 屏蔽（__GENKSYMS__ 只在计算 CRC 时定义），真实布局不变。
+          sed -i 's/^#ifdef CONFIG_CFS_BANDWIDTH$/#if defined(CONFIG_CFS_BANDWIDTH) \&\& !defined(__GENKSYMS__)/' "$F"
+          echo "补丁后:"; grep -n 'CONFIG_CFS_BANDWIDTH' "$F" | head -6
+          test "$(grep -c '!defined(__GENKSYMS__)' "$F")" -ge 1
+
       - name: 编译内核
         id: compile_kernel
         uses: nick-fields/retry@v4
